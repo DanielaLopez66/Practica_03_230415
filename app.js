@@ -3,6 +3,9 @@ const session = require('express-session');
 
 const app = express();
 
+// Middleware para parsear los datos de los formularios
+app.use(express.urlencoded({ extended: true }));
+
 // Configuración de la sesión
 app.use(session({
     secret: 'mi-clave-secreta', // Secreto para firmar la cookie de sesión
@@ -11,23 +14,14 @@ app.use(session({
     cookie: { secure: false }  // Usar secure:true solo si usas HTTPS
 }));
 
-// Middleware para mostrar detalles de la sesión
-app.use((req, res, next) => {
-    if (req.session) {
-        if (!req.session.createdAt) {
-            req.session.createdAt = new Date(); // Asignamos la fecha de la creación de la sesión
-        }
-        req.session.lastAccess = new Date(); // Asignamos la última vez que se accedió a la sesión
-    }
-    next();
-});
-
 // Ruta para mostrar la información de la sesión
 app.get('/session', (req, res) => {
-    if (req.session) {
+    if (req.session.username) {
         const sessionId = req.session.id;
         const createdAt = req.session.createdAt;
+        req.session.lastAccess = new Date(); // Actualizamos el último acceso en el servidor
         const lastAccess = req.session.lastAccess;
+        const username = req.session.username;
 
         // Calculamos el tiempo que lleva viendo la sesión (en segundos desde el último acceso)
         const viewingDuration = Math.floor((new Date() - lastAccess) / 1000);
@@ -35,6 +29,7 @@ app.get('/session', (req, res) => {
         res.send(`
             <h1>Detalles de la sesión</h1>
             <p><strong>ID de sesión:</strong> ${sessionId}</p>
+            <p><strong>Nombre de usuario:</strong> ${username}</p>
             <p><strong>Fecha de creación de la sesión:</strong> ${createdAt}</p>
             <p><strong>Último acceso:</strong> ${lastAccess}</p>
             <p><strong>Duración en la sesión (en segundos):</strong> <span id="viewing-time">${viewingDuration}</span></p>
@@ -53,8 +48,25 @@ app.get('/session', (req, res) => {
             </script>
         `);
     } else {
-        res.send('<h1>No hay sesión activa.</h1>');
+        // Si no hay nombre de usuario, pedimos que lo ingrese
+        res.send(`
+            <h1>Ingresa tu nombre</h1>
+            <form action="/set-name" method="POST">
+                <label for="username">Nombre de usuario:</label>
+                <input type="text" id="username" name="username" required>
+                <button type="submit">Guardar nombre</button>
+            </form>
+        `);
     }
+});
+
+// Ruta para guardar el nombre en la sesión
+app.post('/set-name', (req, res) => {
+    const { username } = req.body;
+    req.session.username = username; // Guardamos el nombre en la sesión
+    req.session.createdAt = new Date(); // Guardamos la fecha de creación de la sesión
+    req.session.lastAccess = new Date(); // Establecemos el último acceso en el momento de creación
+    res.redirect('/session'); // Redirigimos a la página de detalles de la sesión
 });
 
 // Ruta para cerrar la sesión
