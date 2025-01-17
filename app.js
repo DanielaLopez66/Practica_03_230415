@@ -1,82 +1,90 @@
 const express = require('express');
 const session = require('express-session');
+const moment = require('moment-timezone');
 
 const app = express();
 
-// Middleware para parsear los datos de los formularios
-app.use(express.urlencoded({ extended: true }));
-
 // Configuración de la sesión
 app.use(session({
-    secret: 'mi-clave-secreta', // Secreto para firmar la cookie de sesión
-    resave: false,  // No resguardar la sesión si no ha sido modificada
-    saveUninitialized: false,  // Guardar la sesión aunque no haya sido inicializada
-    cookie: { secure: false }  // Usar secure:true solo si usas HTTPS
+    secret: 'p3-ADLN#Mcqueen-sesionespersistentes', // Secreto para firmar la cookie
+    resave: false, // No guardar sesión si no hay cambios
+    saveUninitialized: false, // No guardar sesiones no inicializadas
+    cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 } // Duración: 24 horas
 }));
 
-// Ruta para mostrar la información de la sesión
-app.get('/session', (req, res) => {
-    if (req.session.username) {
-        const sessionId = req.session.id;
-        const createdAt = req.session.createdAt;
-        req.session.lastAccess = new Date(); // Actualizamos el último acceso en el servidor
-        const lastAccess = req.session.lastAccess;
-        const username = req.session.username;
+// Middleware para mostrar detalles de la sesión
+app.use((req, res, next) => {
+    if (req.session) {
+        if (!req.session.createdAt) {
+            req.session.createdAt = new Date(); // Fecha de creación
+        }
+        req.session.lastAccess = new Date(); // Último acceso
+    }
+    next();
+});
 
-        // Calculamos el tiempo que lleva viendo la sesión (en segundos desde el último acceso)
-        const viewingDuration = Math.floor((new Date() - lastAccess) / 1000);
+// Ruta para iniciar sesión
+app.get('/login/:User', (req, res) => {
+    req.session.User = req.params.User;
+    req.session.createdAt = new Date();
+    req.session.lastAccess = new Date();
+    res.send("La sesión ha sido iniciada.");
+});
 
-        res.send(`
-            <h1>Detalles de la sesión</h1>
-            <p><strong>ID de sesión:</strong> ${sessionId}</p>
-            <p><strong>Nombre de usuario:</strong> ${username}</p>
-            <p><strong>Fecha de creación de la sesión:</strong> ${createdAt}</p>
-            <p><strong>Último acceso:</strong> ${lastAccess}</p>
-            <p><strong>Duración en la sesión (en segundos):</strong> <span id="viewing-time">${viewingDuration}</span></p>
-
-            <script>
-                // Función para actualizar el tiempo que lleva viendo la sesión
-                let viewingTime = ${viewingDuration}; // Tiempo en segundos desde el último acceso
-
-                function updateTime() {
-                    viewingTime++;
-                    document.getElementById('viewing-time').innerText = viewingTime;
-                }
-
-                // Actualizar el tiempo cada segundo
-                setInterval(updateTime, 1000);
-            </script>
-        `);
+// Ruta para actualizar el último acceso
+app.get('/update', (req, res) => {
+    if (req.session.createdAt) {
+        req.session.lastAccess = new Date();
+        res.send("La fecha de último acceso ha sido actualizada.");
     } else {
-        // Si no hay nombre de usuario, pedimos que lo ingrese
-        res.send(`
-            <h1>Ingresa tu nombre</h1>
-            <form action="/set-name" method="POST">
-                <label for="username">Nombre de usuario:</label>
-                <input type="text" id="username" name="username" required>
-                <button type="submit">Guardar nombre</button>
-            </form>
-        `);
+        res.send("No hay sesión activa.");
     }
 });
 
-// Ruta para guardar el nombre en la sesión
-app.post('/set-name', (req, res) => {
-    const { username } = req.body;
-    req.session.username = username; // Guardamos el nombre en la sesión
-    req.session.createdAt = new Date(); // Guardamos la fecha de creación de la sesión
-    req.session.lastAccess = new Date(); // Establecemos el último acceso en el momento de creación
-    res.redirect('/session'); // Redirigimos a la página de detalles de la sesión
+// Ruta para mostrar información de la sesión
+app.get('/status', (req, res) => {
+    if (req.session.createdAt) {
+        const now = new Date();
+        const started = new Date(req.session.createdAt);
+        const lastUpdate = new Date(req.session.lastAccess);
+
+        const sessionAgeMs = now - started;
+        const hours = Math.floor(sessionAgeMs / (1000 * 60 * 60));
+        const minutes = Math.floor((sessionAgeMs % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((sessionAgeMs % (1000 * 60)) / 1000);
+
+        const createdAt_CDMX = moment(started).tz('America/Mexico_City').format('YYYY/MM/DD HH:mm:ss');
+        const lastAccess_CDMX = moment(lastUpdate).tz('America/Mexico_City').format('YYYY/MM/DD HH:mm:ss');
+
+        if (req.session.User) {
+            res.json({
+                User: req.session.User,
+                message: 'Estado de la sesión',
+                sessionid: req.sessionID,
+                inicio: createdAt_CDMX,
+                ultimoAcceso: lastAccess_CDMX,
+                antiguedad: `${hours} horas, ${minutes} minutos y ${seconds} segundos`
+            });
+        } else {
+            res.send('No hay una sesión activa.');
+        }
+    } else {
+        res.send('No hay una sesión activa.');
+    }
 });
 
 // Ruta para cerrar la sesión
 app.get('/logout', (req, res) => {
-    req.session.destroy((err) => {
-        if (err) {
-            return res.send('Error al cerrar sesión.');
-        }
-        res.send('<h1>Sesión cerrada exitosamente.</h1>');
-    });
+    if (req.session.createdAt) {
+        req.session.destroy(err => {
+            if (err) {
+                return res.status(500).send('Error al cerrar sesión.');
+            }
+            res.send('<h1>Sesión cerrada exitosamente.</h1>');
+        });
+    } else {
+        res.send('No hay una sesión activa para cerrar.');
+    }
 });
 
 // Iniciar el servidor en el puerto 3000
